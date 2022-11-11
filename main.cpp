@@ -21,6 +21,15 @@ bool lineIsComment_(const std::string& line) {
   return false;
 }
 
+bool lineIsVarDeclaration_(const std::string& line) {
+  for (auto& symbol : line) {
+    if (symbol == '=') {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool lineIsJsonHead_(const std::string& line) {
   int counter = 0;
   for (auto& symbol : line) {
@@ -35,13 +44,29 @@ bool lineIsJsonHead_(const std::string& line) {
   return false;
 }
 
-bool lineIsVarDeclaration_(const std::string& line) {
-  for (auto& symbol : line) {
-    if (symbol == '=') {
-      return true;
+bool lineWithVarUsage_(const std::string& line) {
+  bool step[3] = {false};
+  auto iter = line.begin();
+  for(iter; iter != line.end(); iter++) {
+    if(*iter == '$') {
+      step[0] = true;
+      break;
     }
   }
-  return false;
+  if(*(++iter) == '{') {
+    step[1] = true;
+  }
+  for(iter; iter != line.end(); iter++) {
+    if(*iter == '}') {
+      step[2] = true;
+      break;
+    }
+  }
+  return (step[0] && step[1] && step[2]);
+}
+
+std::string parseVarUsage_(std::string& line) {
+  //auto dollarIter
 }
 
 std::string& parseComment_(std::string& line) {
@@ -51,8 +76,43 @@ std::string& parseComment_(std::string& line) {
   return line;
 }
 
-VarDictionary parseVars_(std::ifstream& jsonFile) {
-  VarDictionary vars;
+std::string parseJson_(std::ifstream& jsonFile) {
+  std::string json;
+  std::string buffer;
+  while (std::getline(jsonFile, buffer)) {
+    json += parseComment_(buffer) + '\n';
+  }
+  return json;
+}
+
+void parseVarFromLine_(const std::string& buffer, VarDictionary& dictionary) {
+  auto buffIter = buffer.begin();
+  std::string varName;
+  std::string varValue;
+  while (*buffIter != '=') {
+    if (*buffIter != ' ' || *buffIter != '\t' || *buffIter != '\n') {
+      varName.push_back(*buffIter);
+      buffIter++;
+    }
+  }
+  buffIter++;
+  while (buffIter != buffer.end()) {
+    if (*buffIter != ' ' || *buffIter != '\t' || *buffIter != '\n') {
+      varValue.push_back(*buffIter);
+      buffIter++;
+    }
+  }
+
+  auto varLocation = dictionary.find(varName);
+  if (varLocation == dictionary.end()) {
+    dictionary.emplace(varName, varValue);
+  } else {
+    dictionary[varName] = varValue;
+  }
+}
+
+VarDictionary& parseJsonVars_(std::ifstream& jsonFile,
+                              VarDictionary& dictionary) {
   std::string buffer;
   std::streampos oldPos = jsonFile.tellg();
   while (std::getline(jsonFile, buffer)) {
@@ -64,54 +124,45 @@ VarDictionary parseVars_(std::ifstream& jsonFile) {
     if (!lineIsVarDeclaration_(buffer) || lineIsComment_(buffer)) {
       continue;
     }
-    auto buffIter = buffer.begin();
-    std::string varName;
-    std::string varValue;
-    while (*buffIter != '=') {
-      if (*buffIter != ' ' || *buffIter != '\t' || *buffIter != '\n') {
-        varName.push_back(*buffIter);
-        buffIter++;
-      }
-    }
-    buffIter++;
-    while (buffIter != buffer.end()) {
-      if (*buffIter != ' ' || *buffIter != '\t' || *buffIter != '\n') {
-        varValue.push_back(*buffIter);
-        buffIter++;
-      }
-    }
-
-    vars.emplace(varName, varValue);
+    parseVarFromLine_(buffer, dictionary);
   }
 
-  return vars;
+  return dictionary;
 }
 
-void getGlobalVars(VarDictionary& dictionary) {}
+void parseGlobalVars_(VarDictionary& dictionary) {
+  for (char** vars = environ; *vars != 0; vars++) {
+    char* thisVar = *vars;
+    std::string buffer(thisVar);
+    parseVarFromLine_(buffer, dictionary);
+  }
+}
 
 }  // namespace
 
 std::string readJson(std::string path) {
+  std::ifstream jsonFile(path);
   std::string json;
   std::string buffer;
-  std::ifstream stream(path);
   VarDictionary vars;
-  if (stream.is_open()) {
-    vars = parseVars_(stream);
-    while (std::getline(stream, buffer)) {
-      json += parseComment_(buffer) + '\n';
-    }
+  if (jsonFile.is_open()) {
+    parseGlobalVars_(vars);
+    parseJsonVars_(jsonFile, vars);
+    json = parseJson_(jsonFile);
   }
   return json;
 }
 
 int main() {
-  // std::string filer = readJson("../conf.json");
-  // std::cout << filer << std::endl;
+  std::string filer = readJson("../conf.json");
+  std::cout << filer << std::endl;
 
-  char** s = environ;
+  std::string check = "${asdasasasd}";
+  bool test = lineWithVarUsage_(check);
 
-  for (; *s; s++) {
-    printf("%s\n", *s);
-  }
+  // char** s = environ;
+
+  // for (; *s; s++) {
+  //   printf("%s\n", *s);
+  // }
 }
